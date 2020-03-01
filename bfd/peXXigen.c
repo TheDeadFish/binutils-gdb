@@ -4132,6 +4132,104 @@ rsrc_merge (struct rsrc_entry * a, struct rsrc_entry * b)
   rsrc_sort_entries (& adir->ids, FALSE, adir);
 }
 
+typedef struct {
+  unsigned int next_free;
+  unsigned short map[65536];
+  unsigned char used[65536];
+} rsrc_icon_free;
+
+static void
+rsrc_icongrp_map (rsrc_icon_free* map, rsrc_entry* entry)
+{
+  unsigned short* data;
+  unsigned int size;
+  unsigned int count;
+
+  for(; entry; entry = entry->next_entry)
+    {
+      /* get data */
+      if(entry->is_dir) 
+	return rsrc_icongrp_map(map, entry->value.directory->ids.first_entry);
+      data = (unsigned short*)(entry->value.leaf->data+4);
+
+      /* check size */
+      size = entry->value.leaf->size;
+      if(size < 6) 
+	continue;
+      count = *data;
+      if(size < count*14+6)
+	continue;
+
+      /* remapp icon ids */
+      while(count--)
+        {
+          data += 7;
+          *data = map->map[*data];
+        }
+    }
+}
+
+static int
+rsrc_icon_map (rsrc_icon_free* map, rsrc_entry* entry)
+{
+  unsigned int id;
+  unsigned int newId;
+  int remap_needed = 0;
+
+  for(; entry; entry = entry->next_entry)
+    {
+      id = entry->name_id.id;
+      newId = entry->name_id.id;
+
+      /* check if slot is used */
+      if(map->used[id] && map->next_free < 65536)
+        {
+          newId = map->next_free;
+          entry->name_id.id = newId;
+          remap_needed = 1;
+        }
+
+      /* mark slot as used */
+      map->used[newId] = 1;
+      map->map[id] = newId;
+      if(map->next_free <= newId)
+        map->next_free = newId+1;
+    }
+
+  return remap_needed;
+}
+
+static void
+rsrc_icon_merge (struct rsrc_directory * type_tables, unsigned int num_resource_sets)
+{
+  unsigned int indx;
+  rsrc_entry *type;
+  rsrc_icon_free* map = calloc(1, sizeof(rsrc_icon_free));
+
+  for (indx = 0; indx < num_resource_sets; indx++)
+    {
+      for(type = type_tables[indx].ids.first_entry;
+          type; type = type->next_entry)
+        {
+          /* remap icons */
+          if(type->name_id.id == 3)
+            {
+              if(!rsrc_icon_map(map, type->value.directory->ids.first_entry))
+                break;
+            }
+
+          /* remap icon groups */
+          else if(type->name_id.id == 14)
+            {
+              rsrc_icongrp_map(map, type->value.directory->ids.first_entry);
+              rsrc_icongrp_map(map, type->value.directory->names.first_entry);
+            }
+        }
+    }
+
+  free(map);
+}
+
 /* Check the .rsrc section.  If it contains multiple concatenated
    resources then we must merge them properly.  Otherwise Windows
    will ignore all but the first set.  */
@@ -4275,6 +4373,8 @@ rsrc_process_section (bfd * abfd,
       ++ indx;
     }
   BFD_ASSERT (indx == num_resource_sets);
+		
+	rsrc_icon_merge(type_tables, num_resource_sets);
 
   /* Step three: Merge the top level tables (there can be only one).
 
