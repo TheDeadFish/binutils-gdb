@@ -811,7 +811,7 @@ process_def_file_and_drectve (bfd *abfd ATTRIBUTE_UNUSED, struct bfd_link_info *
 
   /* Re-sort the exports table as we have possibly changed the order
      by removing leading @.  */
-  if (resort_needed)
+  //if (resort_needed)
     qsort (pe_def_file->exports, NE, sizeof (pe_def_file->exports[0]),
 	   pe_export_sort);
 
